@@ -13,7 +13,7 @@ const app = express();
 app.use(
   cors({
     //origin: "https://die-vehicle-taxation-fe.vercel.app",
-    origin: "https://ganu-fe.vercel.app/",
+    origin: "https://ganu-fe.vercel.app",
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })
@@ -22,12 +22,15 @@ app.use(express.json());
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-app.use("/api/blogs/pdf", express.static(path.join(__dirname, "uploads/blogs")));
+app.use(
+  "/api/blogs/pdf",
+  express.static(path.join(__dirname, "uploads/blogs"))
+);
 
 // Routes
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/events", require("./routes/eventRoutes"));
-app.use("/api/blogs", require("./routes/blogRoutes")); 
+app.use("/api/blogs", require("./routes/blogRoutes"));
 app.use("/api/careers", require("./routes/careerRoutes"));
 app.use("/api/images", require("./routes/imageRoutes"));
 app.use("/api/contact", require("./routes/contactRoutes"));

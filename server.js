@@ -13,7 +13,7 @@ const app = express();
 app.use(
   cors({
     //origin: "https://die-vehicle-taxation-fe.vercel.app",
-    origin: ["http://localhost:5173", "http://localhost:3000"],
+    origin: "https://ganu-fe.vercel.app/",
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true,
   })

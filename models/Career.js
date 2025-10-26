@@ -12,6 +12,7 @@ const careerSchema = new mongoose.Schema({
   },
   salary: { type: String },
   applicationDeadline: { type: Date, required: true },
+  imageUrl: { type: String }, // New field for image URL
   published: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },

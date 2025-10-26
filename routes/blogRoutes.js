@@ -61,11 +61,72 @@ const handleMulterError = (error, req, res, next) => {
   next(error);
 };
 
+// Helper function to get absolute URL for files
+const getAbsoluteFileUrl = (req, filePath) => {
+  if (!filePath) return null;
+  
+  // If it's already an absolute URL, return as is
+  if (filePath.startsWith('http')) {
+    return filePath;
+  }
+  
+  // Construct absolute URL
+  const protocol = req.protocol;
+  const host = req.get('host');
+  
+  // For PDF files
+  if (filePath.startsWith('/uploads/blogs/')) {
+    const filename = path.basename(filePath);
+    return `${protocol}://${host}/api/blogs/pdf/${filename}`;
+  }
+  
+  // For image files
+  if (filePath.startsWith('/uploads/')) {
+    return `${protocol}://${host}${filePath}`;
+  }
+  
+  return filePath;
+};
+
+// Helper function to get download URL for PDFs
+const getPdfDownloadUrl = (req, filePath) => {
+  if (!filePath) return null;
+  
+  // If it's already an absolute URL, convert to download URL
+  if (filePath.startsWith('http')) {
+    return filePath.replace('/pdf/', '/pdf/download/');
+  }
+  
+  // For relative paths
+  if (filePath.startsWith('/uploads/blogs/')) {
+    const filename = path.basename(filePath);
+    const protocol = req.protocol;
+    const host = req.get('host');
+    return `${protocol}://${host}/api/blogs/pdf/download/${filename}`;
+  }
+  
+  return filePath;
+};
+
 // Get all blogs (public) - only published blogs
 router.get("/", async (req, res) => {
   try {
     const blogs = await Blog.find({ published: true }).sort({ createdAt: -1 });
-    res.json(blogs);
+    
+    // Transform file URLs to absolute URLs
+    const blogsWithAbsoluteUrls = blogs.map(blog => {
+      const blogObj = blog.toObject();
+      if (blogObj.imageUrl) {
+        blogObj.imageUrl = getAbsoluteFileUrl(req, blogObj.imageUrl);
+      }
+      if (blogObj.pdfUrl) {
+        blogObj.pdfUrl = getAbsoluteFileUrl(req, blogObj.pdfUrl);
+        blogObj.pdfDownloadUrl = getPdfDownloadUrl(req, blogObj.pdfUrl);
+      }
+      return blogObj;
+    });
+    
+    res.json(blogsWithAbsoluteUrls);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching blogs" });
   }
@@ -75,7 +136,21 @@ router.get("/", async (req, res) => {
 router.get("/admin/all", protect, requireRole(["ADMIN"]), async (req, res) => {
   try {
     const blogs = await Blog.find().sort({ createdAt: -1 });
-    res.json(blogs);
+    
+    // Transform file URLs to absolute URLs
+    const blogsWithAbsoluteUrls = blogs.map(blog => {
+      const blogObj = blog.toObject();
+      if (blogObj.imageUrl) {
+        blogObj.imageUrl = getAbsoluteFileUrl(req, blogObj.imageUrl);
+      }
+      if (blogObj.pdfUrl) {
+        blogObj.pdfUrl = getAbsoluteFileUrl(req, blogObj.pdfUrl);
+        blogObj.pdfDownloadUrl = getPdfDownloadUrl(req, blogObj.pdfUrl);
+      }
+      return blogObj;
+    });
+    
+    res.json(blogsWithAbsoluteUrls);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching blogs" });
   }
@@ -89,7 +164,18 @@ router.get("/:id", async (req, res) => {
       published: true 
     });
     if (!blog) return res.status(404).json({ message: "Blog not found" });
-    res.json(blog);
+    
+    // Transform file URLs to absolute URLs
+    const blogObj = blog.toObject();
+    if (blogObj.imageUrl) {
+      blogObj.imageUrl = getAbsoluteFileUrl(req, blogObj.imageUrl);
+    }
+    if (blogObj.pdfUrl) {
+      blogObj.pdfUrl = getAbsoluteFileUrl(req, blogObj.pdfUrl);
+      blogObj.pdfDownloadUrl = getPdfDownloadUrl(req, blogObj.pdfUrl);
+    }
+    
+    res.json(blogObj);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching blog" });
   }
@@ -100,7 +186,18 @@ router.get("/admin/:id", protect, requireRole(["ADMIN"]), async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id);
     if (!blog) return res.status(404).json({ message: "Blog not found" });
-    res.json(blog);
+    
+    // Transform file URLs to absolute URLs
+    const blogObj = blog.toObject();
+    if (blogObj.imageUrl) {
+      blogObj.imageUrl = getAbsoluteFileUrl(req, blogObj.imageUrl);
+    }
+    if (blogObj.pdfUrl) {
+      blogObj.pdfUrl = getAbsoluteFileUrl(req, blogObj.pdfUrl);
+      blogObj.pdfDownloadUrl = getPdfDownloadUrl(req, blogObj.pdfUrl);
+    }
+    
+    res.json(blogObj);
   } catch (err) {
     res.status(500).json({ message: "Server error fetching blog" });
   }
@@ -137,7 +234,18 @@ router.post("/", protect, requireRole(["ADMIN"]), upload.single('file'), handleM
 
     const blog = new Blog(blogData);
     await blog.save();
-    res.status(201).json(blog);
+    
+    // Transform file URLs to absolute URLs in response
+    const blogObj = blog.toObject();
+    if (blogObj.imageUrl) {
+      blogObj.imageUrl = getAbsoluteFileUrl(req, blogObj.imageUrl);
+    }
+    if (blogObj.pdfUrl) {
+      blogObj.pdfUrl = getAbsoluteFileUrl(req, blogObj.pdfUrl);
+      blogObj.pdfDownloadUrl = getPdfDownloadUrl(req, blogObj.pdfUrl);
+    }
+    
+    res.status(201).json(blogObj);
   } catch (err) {
     console.error('Error creating blog:', err);
     
@@ -209,7 +317,17 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
       { new: true }
     );
     
-    res.json(updatedBlog);
+    // Transform file URLs to absolute URLs in response
+    const blogObj = updatedBlog.toObject();
+    if (blogObj.imageUrl) {
+      blogObj.imageUrl = getAbsoluteFileUrl(req, blogObj.imageUrl);
+    }
+    if (blogObj.pdfUrl) {
+      blogObj.pdfUrl = getAbsoluteFileUrl(req, blogObj.pdfUrl);
+      blogObj.pdfDownloadUrl = getPdfDownloadUrl(req, blogObj.pdfUrl);
+    }
+    
+    res.json(blogObj);
   } catch (err) {
     console.error('Error updating blog:', err);
     
@@ -254,7 +372,7 @@ router.delete("/:id", protect, requireRole(["ADMIN"]), async (req, res) => {
   }
 });
 
-// Add this route to serve PDF files (add it before other routes)
+// Serve PDF files for viewing
 router.get("/pdf/:filename", async (req, res) => {
   try {
     const filename = req.params.filename;
@@ -265,9 +383,10 @@ router.get("/pdf/:filename", async (req, res) => {
       return res.status(404).json({ message: "PDF file not found" });
     }
 
-    // Set appropriate headers for PDF
+    // Set appropriate headers for PDF viewing
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
     
     // Stream the file
     const fileStream = fs.createReadStream(filePath);
@@ -276,6 +395,44 @@ router.get("/pdf/:filename", async (req, res) => {
   } catch (err) {
     console.error('Error serving PDF:', err);
     res.status(500).json({ message: "Error serving PDF file" });
+  }
+});
+
+// Serve PDF files for download
+router.get("/pdf/download/:filename", async (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(__dirname, '../uploads/blogs', filename);
+    
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ message: "PDF file not found" });
+    }
+
+    // Get the original filename from the database if possible
+    let originalFilename = filename;
+    try {
+      const blog = await Blog.findOne({ pdfUrl: { $regex: filename } });
+      if (blog && blog.pdfFileName) {
+        originalFilename = blog.pdfFileName;
+      }
+    } catch (dbErr) {
+      console.log('Could not fetch original filename from database, using default');
+    }
+
+    // Set headers for download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${originalFilename}"`);
+    res.setHeader('Content-Transfer-Encoding', 'binary');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    
+    // Stream the file
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.pipe(res);
+    
+  } catch (err) {
+    console.error('Error downloading PDF:', err);
+    res.status(500).json({ message: "Error downloading PDF file" });
   }
 });
 

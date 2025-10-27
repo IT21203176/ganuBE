@@ -16,6 +16,7 @@ const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
       "https://ganu-fe.vercel.app",
+      "https://www.ganu-fe.vercel.app",
       "http://localhost:3000"
     ];
     
@@ -31,12 +32,22 @@ const corsOptions = {
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"]
+  allowedHeaders: [
+    "Content-Type", 
+    "Authorization", 
+    "X-Requested-With", 
+    "Accept",
+    "Cache-Control",
+    "Pragma"
+  ],
+  exposedHeaders: ["Content-Length", "Authorization"],
+  maxAge: 86400 // 24 hours
 };
 
+// Apply CORS middleware
 app.use(cors(corsOptions));
 
-// Handle preflight requests
+// Handle preflight requests globally
 app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '50mb' }));
@@ -70,7 +81,8 @@ app.get("/api/health", (req, res) => {
   res.json({ 
     status: "OK", 
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || 'development',
+    cors: "enabled"
   });
 });
 
@@ -89,6 +101,15 @@ app.get("/api/debug/events", async (req, res) => {
     console.error('DEBUG Error:', err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Test CORS endpoint
+app.get("/api/cors-test", (req, res) => {
+  res.json({
+    message: "CORS is working!",
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString()
+  });
 });
 
 const PORT = process.env.PORT || 8080;

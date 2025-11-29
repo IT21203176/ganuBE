@@ -5,10 +5,11 @@ const blogSchema = new mongoose.Schema({
   content: { type: String }, // Make optional for PDF posts
   excerpt: { type: String },
   author: { type: String, required: true },
-  imageUrl: { type: String },
-  pdfUrl: { type: String }, // New field for PDF file path
+  imageUrl: { type: String }, // For image files
+  pdfUrl: { type: String }, // For PDF files
   pdfFileName: { type: String }, // Original PDF file name
   fileSize: { type: String }, // File size for display
+  fileType: { type: String, enum: ["image", "pdf"], default: null }, // Track file type
   isPdfPost: { type: Boolean, default: false }, // Flag to identify PDF posts
   published: { type: Boolean, default: false },
   createdAt: { type: Date, default: Date.now },

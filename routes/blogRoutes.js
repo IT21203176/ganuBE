@@ -118,11 +118,13 @@ router.post("/", protect, requireRole(["ADMIN"]), upload.single('file'), handleM
         blogData.pdfUrl = `/uploads/blogs/${req.file.filename}`;
         blogData.pdfFileName = req.file.originalname;
         blogData.fileSize = formatFileSize(req.file.size);
+        blogData.fileType = 'pdf';
         blogData.isPdfPost = true;
         blogData.content = ""; // Clear content for PDF posts
       } else {
         // Image file upload
         blogData.imageUrl = `/uploads/blogs/${req.file.filename}`;
+        blogData.fileType = 'image';
         blogData.isPdfPost = false;
       }
     }
@@ -171,13 +173,22 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
             fs.unlinkSync(oldFilePath);
           }
         }
+        // Delete old image if exists (replacing with PDF)
+        if (blog.imageUrl) {
+          const oldImagePath = path.join(__dirname, '..', blog.imageUrl);
+          if (fs.existsSync(oldImagePath)) {
+            fs.unlinkSync(oldImagePath);
+          }
+        }
         
         // Update with new PDF
         updateData.pdfUrl = `/uploads/blogs/${req.file.filename}`;
         updateData.pdfFileName = req.file.originalname;
         updateData.fileSize = formatFileSize(req.file.size);
+        updateData.fileType = 'pdf';
         updateData.isPdfPost = true;
         updateData.content = ""; // Clear content for PDF posts
+        updateData.imageUrl = null; // Clear image URL when PDF is uploaded
       } else {
         // Delete old image if exists
         if (blog.imageUrl && blog.imageUrl.startsWith('/uploads/')) {
@@ -186,10 +197,21 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
             fs.unlinkSync(oldFilePath);
           }
         }
+        // Delete old PDF if exists (replacing with image)
+        if (blog.pdfUrl) {
+          const oldPdfPath = path.join(__dirname, '..', blog.pdfUrl);
+          if (fs.existsSync(oldPdfPath)) {
+            fs.unlinkSync(oldPdfPath);
+          }
+        }
         
         // Update with new image
         updateData.imageUrl = `/uploads/blogs/${req.file.filename}`;
+        updateData.fileType = 'image';
         updateData.isPdfPost = false;
+        updateData.pdfUrl = null; // Clear PDF URL when image is uploaded
+        updateData.pdfFileName = null;
+        updateData.fileSize = null;
       }
     }
 

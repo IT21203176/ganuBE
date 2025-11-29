@@ -53,14 +53,41 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Static files
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// Static files - serve with proper headers
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+  setHeaders: (res, filePath) => {
+    // Set proper content-type based on file extension
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.jpg' || ext === '.jpeg') {
+      res.setHeader('Content-Type', 'image/jpeg');
+    } else if (ext === '.png') {
+      res.setHeader('Content-Type', 'image/png');
+    } else if (ext === '.gif') {
+      res.setHeader('Content-Type', 'image/gif');
+    } else if (ext === '.webp') {
+      res.setHeader('Content-Type', 'image/webp');
+    } else if (ext === '.svg') {
+      res.setHeader('Content-Type', 'image/svg+xml');
+    } else if (ext === '.pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+    }
+    
+    // Set cache headers for images (cache for 1 year)
+    if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'].includes(ext)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (ext === '.pdf') {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+}));
+
+// Legacy route for blog PDFs
 app.use("/api/blogs/pdf", express.static(path.join(__dirname, "uploads/blogs")));
 
-// Add cache control headers for API routes
+// Add cache control headers for API routes only (not static files)
 app.use((req, res, next) => {
-  // Skip cache for API routes
-  if (req.path.startsWith('/api/')) {
+  // Skip cache for API routes, but not for static files
+  if (req.path.startsWith('/api/') && !req.path.startsWith('/api/blogs/pdf') && !req.path.startsWith('/uploads')) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');

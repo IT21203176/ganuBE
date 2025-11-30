@@ -2,64 +2,15 @@ const express = require("express");
 const router = express.Router();
 const Blog = require("../models/Blog");
 const { protect, requireRole } = require("../middleware/authMiddleware");
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { 
+  createUploadMiddleware, 
+  handleMulterError, 
+  deleteFromCloudinary,
+  formatFileSize 
+} = require("../config/cloudinary");
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../uploads/blogs');
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'blog-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const fileFilter = (req, file, cb) => {
-  // Allow both images and PDFs
-  if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-    cb(null, true);
-  } else {
-    cb(new Error('Only image and PDF files are allowed!'), false);
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 20 * 1024 * 1024 // Increase to 20MB for larger PDFs
-  }
-});
-
-// Error handling middleware for multer
-const handleMulterError = (error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        message: 'File too large. Maximum size is 20MB.'
-      });
-    }
-    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
-      return res.status(400).json({
-        message: 'Unexpected field or too many files.'
-      });
-    }
-  } else if (error) {
-    return res.status(400).json({
-      message: error.message
-    });
-  }
-  next(error);
-};
+// Create upload middleware for blogs
+const upload = createUploadMiddleware('ganu/blogs', 20);
 
 // Get all blogs (public) - only published blogs
 router.get("/", async (req, res) => {
@@ -111,11 +62,11 @@ router.post("/", protect, requireRole(["ADMIN"]), upload.single('file'), handleM
   try {
     const blogData = { ...req.body };
     
-    // Handle file upload
+    // Handle file upload from Cloudinary
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
         // PDF file upload
-        blogData.pdfUrl = `/uploads/blogs/${req.file.filename}`;
+        blogData.pdfUrl = req.file.path; // Cloudinary URL
         blogData.pdfFileName = req.file.originalname;
         blogData.fileSize = formatFileSize(req.file.size);
         blogData.fileType = 'pdf';
@@ -123,7 +74,7 @@ router.post("/", protect, requireRole(["ADMIN"]), upload.single('file'), handleM
         blogData.content = ""; // Clear content for PDF posts
       } else {
         // Image file upload
-        blogData.imageUrl = `/uploads/blogs/${req.file.filename}`;
+        blogData.imageUrl = req.file.path; // Cloudinary URL
         blogData.fileType = 'image';
         blogData.isPdfPost = false;
       }
@@ -143,12 +94,9 @@ router.post("/", protect, requireRole(["ADMIN"]), upload.single('file'), handleM
   } catch (err) {
     console.error('Error creating blog:', err);
     
-    // Clean up uploaded file if there was an error
-    if (req.file) {
-      const filePath = path.join(__dirname, '../uploads/blogs', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+    // Clean up uploaded file from Cloudinary if there was an error
+    if (req.file && req.file.path) {
+      await deleteFromCloudinary(req.file.path);
     }
     
     res.status(400).json({ message: "Error creating blog: " + err.message });
@@ -163,26 +111,20 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
 
     const updateData = { ...req.body };
     
-    // Handle file upload
+    // Handle file upload from Cloudinary
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
-        // Delete old PDF if exists
+        // Delete old PDF from Cloudinary if exists
         if (blog.pdfUrl) {
-          const oldFilePath = path.join(__dirname, '..', blog.pdfUrl);
-          if (fs.existsSync(oldFilePath)) {
-            fs.unlinkSync(oldFilePath);
-          }
+          await deleteFromCloudinary(blog.pdfUrl);
         }
-        // Delete old image if exists (replacing with PDF)
+        // Delete old image from Cloudinary if exists (replacing with PDF)
         if (blog.imageUrl) {
-          const oldImagePath = path.join(__dirname, '..', blog.imageUrl);
-          if (fs.existsSync(oldImagePath)) {
-            fs.unlinkSync(oldImagePath);
-          }
+          await deleteFromCloudinary(blog.imageUrl);
         }
         
         // Update with new PDF
-        updateData.pdfUrl = `/uploads/blogs/${req.file.filename}`;
+        updateData.pdfUrl = req.file.path; // Cloudinary URL
         updateData.pdfFileName = req.file.originalname;
         updateData.fileSize = formatFileSize(req.file.size);
         updateData.fileType = 'pdf';
@@ -190,23 +132,17 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
         updateData.content = ""; // Clear content for PDF posts
         updateData.imageUrl = null; // Clear image URL when PDF is uploaded
       } else {
-        // Delete old image if exists
-        if (blog.imageUrl && blog.imageUrl.startsWith('/uploads/')) {
-          const oldFilePath = path.join(__dirname, '..', blog.imageUrl);
-          if (fs.existsSync(oldFilePath)) {
-            fs.unlinkSync(oldFilePath);
-          }
+        // Delete old image from Cloudinary if exists
+        if (blog.imageUrl) {
+          await deleteFromCloudinary(blog.imageUrl);
         }
-        // Delete old PDF if exists (replacing with image)
+        // Delete old PDF from Cloudinary if exists (replacing with image)
         if (blog.pdfUrl) {
-          const oldPdfPath = path.join(__dirname, '..', blog.pdfUrl);
-          if (fs.existsSync(oldPdfPath)) {
-            fs.unlinkSync(oldPdfPath);
-          }
+          await deleteFromCloudinary(blog.pdfUrl);
         }
         
         // Update with new image
-        updateData.imageUrl = `/uploads/blogs/${req.file.filename}`;
+        updateData.imageUrl = req.file.path; // Cloudinary URL
         updateData.fileType = 'image';
         updateData.isPdfPost = false;
         updateData.pdfUrl = null; // Clear PDF URL when image is uploaded
@@ -235,12 +171,9 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
   } catch (err) {
     console.error('Error updating blog:', err);
     
-    // Clean up uploaded file if there was an error
-    if (req.file) {
-      const filePath = path.join(__dirname, '../uploads/blogs', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+    // Clean up uploaded file from Cloudinary if there was an error
+    if (req.file && req.file.path) {
+      await deleteFromCloudinary(req.file.path);
     }
     
     res.status(400).json({ message: "Error updating blog: " + err.message });
@@ -253,19 +186,13 @@ router.delete("/:id", protect, requireRole(["ADMIN"]), async (req, res) => {
     const blog = await Blog.findById(req.params.id);
     if (!blog) return res.status(404).json({ message: "Blog not found" });
 
-    // Delete associated files
-    if (blog.imageUrl && blog.imageUrl.startsWith('/uploads/')) {
-      const imagePath = path.join(__dirname, '..', blog.imageUrl);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-      }
+    // Delete associated files from Cloudinary
+    if (blog.imageUrl) {
+      await deleteFromCloudinary(blog.imageUrl);
     }
 
-    if (blog.pdfUrl && blog.pdfUrl.startsWith('/uploads/')) {
-      const pdfPath = path.join(__dirname, '..', blog.pdfUrl);
-      if (fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath);
-      }
+    if (blog.pdfUrl) {
+      await deleteFromCloudinary(blog.pdfUrl);
     }
 
     await Blog.findByIdAndDelete(req.params.id);
@@ -275,39 +202,5 @@ router.delete("/:id", protect, requireRole(["ADMIN"]), async (req, res) => {
     res.status(500).json({ message: "Error deleting blog" });
   }
 });
-
-// Add this route to serve PDF files (add it before other routes)
-router.get("/pdf/:filename", async (req, res) => {
-  try {
-    const filename = req.params.filename;
-    const filePath = path.join(__dirname, '../uploads/blogs', filename);
-    
-    // Check if file exists
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ message: "PDF file not found" });
-    }
-
-    // Set appropriate headers for PDF
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
-    
-    // Stream the file
-    const fileStream = fs.createReadStream(filePath);
-    fileStream.pipe(res);
-    
-  } catch (err) {
-    console.error('Error serving PDF:', err);
-    res.status(500).json({ message: "Error serving PDF file" });
-  }
-});
-
-// Helper function to format file size
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
 
 module.exports = router;

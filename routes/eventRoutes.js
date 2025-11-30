@@ -2,73 +2,15 @@ const express = require("express");
 const router = express.Router();
 const Event = require("../models/Event");
 const { protect, requireRole } = require("../middleware/authMiddleware");
-const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
+const { 
+  createUploadMiddleware, 
+  handleMulterError, 
+  deleteFromCloudinary,
+  formatFileSize 
+} = require("../config/cloudinary");
 
-// Configure multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadDir = path.join(__dirname, '../uploads/events');
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: function (req, file, cb) {
-    // Generate unique filename with timestamp
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'event-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-const fileFilter = (req, file, cb) => {
-  // Allow both images and PDFs
-  if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
-    cb(null, true);
-  } else {
-    cb(new Error('Only image and PDF files are allowed!'), false);
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
-  limits: {
-    fileSize: 20 * 1024 * 1024 // 20MB limit for larger PDFs
-  }
-});
-
-// Error handling middleware for multer
-const handleMulterError = (error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        message: 'File too large. Maximum size is 20MB.'
-      });
-    }
-    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
-      return res.status(400).json({
-        message: 'Unexpected field or too many files.'
-      });
-    }
-  } else if (error) {
-    return res.status(400).json({
-      message: error.message
-    });
-  }
-  next(error);
-};
-
-// Helper function to format file size
-function formatFileSize(bytes) {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
+// Create upload middleware for events
+const upload = createUploadMiddleware('ganu/events', 20);
 
 // Get all events (public) - supports filtering by type
 router.get("/", async (req, res) => {
@@ -146,17 +88,17 @@ router.post("/", protect, requireRole(["ADMIN"]), upload.single('file'), handleM
       location
     };
     
-    // Handle file upload
+    // Handle file upload from Cloudinary
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
         // PDF file upload
-        eventData.pdfUrl = `/uploads/events/${req.file.filename}`;
+        eventData.pdfUrl = req.file.path; // Cloudinary URL
         eventData.pdfFileName = req.file.originalname;
         eventData.fileSize = formatFileSize(req.file.size);
         eventData.fileType = 'pdf';
       } else {
         // Image file upload
-        eventData.imageUrl = `/uploads/events/${req.file.filename}`;
+        eventData.imageUrl = req.file.path; // Cloudinary URL
         eventData.fileType = 'image';
       }
     }
@@ -167,12 +109,9 @@ router.post("/", protect, requireRole(["ADMIN"]), upload.single('file'), handleM
   } catch (err) {
     console.error('Error creating event:', err);
     
-    // Clean up uploaded file if there was an error
-    if (req.file) {
-      const filePath = path.join(__dirname, '../uploads/events', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+    // Clean up uploaded file from Cloudinary if there was an error
+    if (req.file && req.file.path) {
+      await deleteFromCloudinary(req.file.path);
     }
     
     res.status(400).json({ message: "Error creating event: " + err.message });
@@ -203,48 +142,36 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
       updateData.date = new Date(date);
     }
     
-    // Handle file upload
+    // Handle file upload from Cloudinary
     if (req.file) {
       if (req.file.mimetype === 'application/pdf') {
-        // Delete old PDF if exists
+        // Delete old PDF from Cloudinary if exists
         if (event.pdfUrl) {
-          const oldFilePath = path.join(__dirname, '..', event.pdfUrl);
-          if (fs.existsSync(oldFilePath)) {
-            fs.unlinkSync(oldFilePath);
-          }
+          await deleteFromCloudinary(event.pdfUrl);
         }
-        // Delete old image if exists (replacing with PDF)
+        // Delete old image from Cloudinary if exists (replacing with PDF)
         if (event.imageUrl) {
-          const oldImagePath = path.join(__dirname, '..', event.imageUrl);
-          if (fs.existsSync(oldImagePath)) {
-            fs.unlinkSync(oldImagePath);
-          }
+          await deleteFromCloudinary(event.imageUrl);
         }
         
         // Update with new PDF
-        updateData.pdfUrl = `/uploads/events/${req.file.filename}`;
+        updateData.pdfUrl = req.file.path; // Cloudinary URL
         updateData.pdfFileName = req.file.originalname;
         updateData.fileSize = formatFileSize(req.file.size);
         updateData.fileType = 'pdf';
         updateData.imageUrl = null; // Clear image URL when PDF is uploaded
       } else {
-        // Delete old image if exists
-        if (event.imageUrl && event.imageUrl.startsWith('/uploads/')) {
-          const oldFilePath = path.join(__dirname, '..', event.imageUrl);
-          if (fs.existsSync(oldFilePath)) {
-            fs.unlinkSync(oldFilePath);
-          }
+        // Delete old image from Cloudinary if exists
+        if (event.imageUrl) {
+          await deleteFromCloudinary(event.imageUrl);
         }
-        // Delete old PDF if exists (replacing with image)
+        // Delete old PDF from Cloudinary if exists (replacing with image)
         if (event.pdfUrl) {
-          const oldPdfPath = path.join(__dirname, '..', event.pdfUrl);
-          if (fs.existsSync(oldPdfPath)) {
-            fs.unlinkSync(oldPdfPath);
-          }
+          await deleteFromCloudinary(event.pdfUrl);
         }
         
         // Update with new image
-        updateData.imageUrl = `/uploads/events/${req.file.filename}`;
+        updateData.imageUrl = req.file.path; // Cloudinary URL
         updateData.fileType = 'image';
         updateData.pdfUrl = null; // Clear PDF URL when image is uploaded
         updateData.pdfFileName = null;
@@ -262,12 +189,9 @@ router.put("/:id", protect, requireRole(["ADMIN"]), upload.single('file'), handl
   } catch (err) {
     console.error('Error updating event:', err);
     
-    // Clean up uploaded file if there was an error
-    if (req.file) {
-      const filePath = path.join(__dirname, '../uploads/events', req.file.filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+    // Clean up uploaded file from Cloudinary if there was an error
+    if (req.file && req.file.path) {
+      await deleteFromCloudinary(req.file.path);
     }
     
     res.status(400).json({ message: "Error updating event: " + err.message });
@@ -280,19 +204,13 @@ router.delete("/:id", protect, requireRole(["ADMIN"]), async (req, res) => {
     const event = await Event.findById(req.params.id);
     if (!event) return res.status(404).json({ message: "Event not found" });
 
-    // Delete associated files
-    if (event.imageUrl && event.imageUrl.startsWith('/uploads/')) {
-      const imagePath = path.join(__dirname, '..', event.imageUrl);
-      if (fs.existsSync(imagePath)) {
-        fs.unlinkSync(imagePath);
-      }
+    // Delete associated files from Cloudinary
+    if (event.imageUrl) {
+      await deleteFromCloudinary(event.imageUrl);
     }
 
-    if (event.pdfUrl && event.pdfUrl.startsWith('/uploads/')) {
-      const pdfPath = path.join(__dirname, '..', event.pdfUrl);
-      if (fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath);
-      }
+    if (event.pdfUrl) {
+      await deleteFromCloudinary(event.pdfUrl);
     }
 
     await Event.findByIdAndDelete(req.params.id);

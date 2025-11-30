@@ -1,6 +1,5 @@
-const fs = require("fs");
-const path = require("path");
 const Image = require("../models/Image");
+const { deleteFromCloudinary } = require("../config/cloudinary");
 
 // POST /api/images  (admin only) - upload image
 exports.uploadImage = async (req, res) => {
@@ -11,7 +10,7 @@ exports.uploadImage = async (req, res) => {
     const newImage = await Image.create({
       title: title || req.file.originalname,
       description: description || "",
-      filename: req.file.filename,
+      filename: req.file.path, // Cloudinary URL
       originalName: req.file.originalname,
       uploadedBy: req.user._id || req.user.id
     });
@@ -19,6 +18,12 @@ exports.uploadImage = async (req, res) => {
     res.status(201).json({ message: "Image uploaded", image: newImage });
   } catch (err) {
     console.error("uploadImage error:", err);
+    
+    // Clean up uploaded file from Cloudinary if there was an error
+    if (req.file && req.file.path) {
+      await deleteFromCloudinary(req.file.path);
+    }
+    
     res.status(500).json({ message: "Server error uploading image" });
   }
 };
@@ -58,10 +63,9 @@ exports.deleteImage = async (req, res) => {
     const image = await Image.findById(req.params.id);
     if (!image) return res.status(404).json({ message: "Image not found" });
 
-    const filePath = path.join(__dirname, "../uploads", image.filename);
-    // remove file if exists
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    // Delete from Cloudinary
+    if (image.filename) {
+      await deleteFromCloudinary(image.filename);
     }
 
     await Image.deleteOne({ _id: req.params.id });  

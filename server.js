@@ -15,6 +15,8 @@ const app = express();
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
+      "https://ganuprofessional.lk",
+      "https://www.ganuprofessional.lk",
       "https://ganu-fe.vercel.app",
       "https://www.ganu-fe.vercel.app",
       "http://localhost:3000"
@@ -53,9 +55,27 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// CORS middleware for static files (ensures images/PDFs have CORS headers)
+app.use("/uploads", (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://ganuprofessional.lk",
+    "https://www.ganuprofessional.lk",
+    "https://ganu-fe.vercel.app",
+    "https://www.ganu-fe.vercel.app",
+    "http://localhost:3000"
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  next();
+});
+
 // Static files - serve with proper headers
 app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
-  setHeaders: (res, filePath) => {
+  setHeaders: (res, filePath, stat) => {
     // Set proper content-type based on file extension
     const ext = path.extname(filePath).toLowerCase();
     if (ext === '.jpg' || ext === '.jpeg') {
@@ -81,8 +101,23 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
   }
 }));
 
-// Legacy route for blog PDFs
-app.use("/api/blogs/pdf", express.static(path.join(__dirname, "uploads/blogs")));
+// Legacy route for blog PDFs - with CORS headers
+app.use("/api/blogs/pdf", (req, res, next) => {
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    "https://ganuprofessional.lk",
+    "https://www.ganuprofessional.lk",
+    "https://ganu-fe.vercel.app",
+    "https://www.ganu-fe.vercel.app",
+    "http://localhost:3000"
+  ];
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+  next();
+}, express.static(path.join(__dirname, "uploads/blogs")));
 
 // Add cache control headers for API routes only (not static files)
 app.use((req, res, next) => {

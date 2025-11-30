@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const connectDB = require("./config/db");
+const path = require("path");
 
 // Load env variables
 dotenv.config();
@@ -54,10 +55,24 @@ app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Static files - serve PDFs and other uploads with proper headers
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+  setHeaders: (res, filePath) => {
+    const ext = path.extname(filePath).toLowerCase();
+    
+    // Set proper content-type for PDFs
+    if (ext === '.pdf') {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+    }
+  }
+}));
+
 // Add cache control headers for API routes
 app.use((req, res, next) => {
-  // No cache for API routes
-  if (req.path.startsWith('/api/')) {
+  // No cache for API routes, but allow static files
+  if (req.path.startsWith('/api/') && !req.path.startsWith('/uploads')) {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
